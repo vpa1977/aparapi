@@ -141,6 +141,7 @@ public abstract class Kernel implements Cloneable{
    }
 
    @Retention(RetentionPolicy.RUNTIME) @interface OpenCLDelegate {
+
    }
 
    private static Logger logger = Logger.getLogger(Config.getLoggerName());
@@ -148,8 +149,8 @@ public abstract class Kernel implements Cloneable{
    public abstract class Entry{
       public abstract void run();
 
-      public Kernel execute(int _globalSize) {
-         return (Kernel.this.execute("foo", _globalSize, 1));
+      public Kernel execute(Range _range) {
+         return (Kernel.this.execute("foo", _range, 1));
       }
    }
 
@@ -292,25 +293,29 @@ public abstract class Kernel implements Cloneable{
 
    private EXECUTION_MODE executionMode = EXECUTION_MODE.getDefaultExecutionMode();
 
-   private int globalId;
+   int[] globalId = new int[] {
+         0,
+         0,
+         0
+   };
 
-   private int localId;
+   int[] localId = new int[] {
+         0,
+         0,
+         0
+   };
 
-   private int localSize;
+   int[] groupId = new int[] {
+         0,
+         0,
+         0
+   };
 
-   private int globalSize;
+   Range range;
 
-   private int groupId;
-
-   private int passId;
-
-   private int numGroups;
+   int passId;
 
    volatile CyclicBarrier localBarrier;
-
-   void setGlobalId(int _globalId) {
-      globalId = _globalId;
-   }
 
    /**
     * Determine the globalId of an executing kernel.
@@ -349,19 +354,26 @@ public abstract class Kernel implements Cloneable{
     */
 
    @OpenCLDelegate protected final int getGlobalId() {
-      return (globalId);
+      return (getGlobalId(0));
    }
 
-   void setGroupId(int _groupId) {
-      groupId = _groupId;
-
+   @OpenCLDelegate protected final int getGlobalId(int _dim) {
+      return (globalId[_dim]);
    }
 
-   void setPassId(int _passId) {
-      passId = _passId;
+   /*
+      @OpenCLDelegate protected final int getGlobalX() {
+         return (getGlobalId(0));
+      }
 
-   }
+      @OpenCLDelegate protected final int getGlobalY() {
+         return (getGlobalId(1));
+      }
 
+      @OpenCLDelegate protected final int getGlobalZ() {
+         return (getGlobalId(2));
+      }
+   */
    /**
     * Determine the groupId of an executing kernel.
     * <p>
@@ -394,9 +406,26 @@ public abstract class Kernel implements Cloneable{
     * @return The groupId for this Kernel being executed
     */
    @OpenCLDelegate protected final int getGroupId() {
-      return (groupId);
+      return (getGroupId(0));
    }
 
+   @OpenCLDelegate protected final int getGroupId(int _dim) {
+      return (groupId[_dim]);
+   }
+
+   /*
+      @OpenCLDelegate protected final int getGroupX() {
+         return (getGroupId(0));
+      }
+
+      @OpenCLDelegate protected final int getGroupY() {
+         return (getGroupId(1));
+      }
+
+      @OpenCLDelegate protected final int getGroupZ() {
+         return (getGroupId(2));
+      }
+   */
    /**
     * Determine the passId of an executing kernel.
     * <p>
@@ -414,10 +443,6 @@ public abstract class Kernel implements Cloneable{
     */
    @OpenCLDelegate protected final int getPassId() {
       return (passId);
-   }
-
-   void setLocalId(int _localId) {
-      localId = _localId;
    }
 
    /**
@@ -451,9 +476,26 @@ public abstract class Kernel implements Cloneable{
     * @return The local id for this Kernel being executed
     */
    @OpenCLDelegate protected final int getLocalId() {
-      return (localId);
+      return (getLocalId(0));
    }
 
+   @OpenCLDelegate protected final int getLocalId(int _dim) {
+      return (localId[_dim]);
+   }
+
+   /*
+      @OpenCLDelegate protected final int getLocalX() {
+         return (getLocalId(0));
+      }
+
+      @OpenCLDelegate protected final int getLocalY() {
+         return (getLocalId(1));
+      }
+
+      @OpenCLDelegate protected final int getLocalZ() {
+         return (getLocalId(2));
+      }
+   */
    /**
     * Determine the size of the group that an executing kernel is a member of.
     * <p>
@@ -472,9 +514,26 @@ public abstract class Kernel implements Cloneable{
     * @return The size of the currently executing group.
     */
    @OpenCLDelegate protected final int getLocalSize() {
-      return (localSize);
+      return (range.getLocalSize(0));
    }
 
+   @OpenCLDelegate protected final int getLocalSize(int _dim) {
+      return (range.getLocalSize(_dim));
+   }
+
+   /*
+      @OpenCLDelegate protected final int getLocalWidth() {
+         return (range.getLocalSize(0));
+      }
+
+      @OpenCLDelegate protected final int getLocalHeight() {
+         return (range.getLocalSize(1));
+      }
+
+      @OpenCLDelegate protected final int getLocalDepth() {
+         return (range.getLocalSize(2));
+      }
+   */
    /**
     * Determine the value that was passed to <code>Kernel.execute(int globalSize)</code> method.
     * 
@@ -486,14 +545,26 @@ public abstract class Kernel implements Cloneable{
     * @return The value passed to <code>Kernel.execute(int globalSize)</code> causing the current execution.
     */
    @OpenCLDelegate protected final int getGlobalSize() {
-      return (globalSize);
+      return (range.getGlobalSize(0));
    }
 
-   void setNumGroups(int _numGroups) {
-      numGroups = _numGroups;
-
+   @OpenCLDelegate protected final int getGlobalSize(int _dim) {
+      return (range.getGlobalSize(_dim));
    }
 
+   /*
+      @OpenCLDelegate protected final int getGlobalWidth() {
+         return (range.getGlobalSize(0));
+      }
+
+      @OpenCLDelegate protected final int getGlobalHeight() {
+         return (range.getGlobalSize(1));
+      }
+
+      @OpenCLDelegate protected final int getGlobalDepth() {
+         return (range.getGlobalSize(2));
+      }
+   */
    /**
     * Determine the number of groups that will be used to execute a kernel
     * <p>
@@ -509,9 +580,26 @@ public abstract class Kernel implements Cloneable{
     * @return The number of groups that kernels will be dispatched into.
     */
    @OpenCLDelegate protected final int getNumGroups() {
-      return (numGroups);
+      return (range.getNumGroups(0));
    }
 
+   @OpenCLDelegate protected final int getNumGroups(int _dim) {
+      return (range.getNumGroups(_dim));
+   }
+
+   /*
+      @OpenCLDelegate protected final int getNumGroupsWidth() {
+         return (range.getGroups(0));
+      }
+
+      @OpenCLDelegate protected final int getNumGroupsHeight() {
+         return (range.getGroups(1));
+      }
+
+      @OpenCLDelegate protected final int getNumGroupsDepth() {
+         return (range.getGroups(2));
+      }
+   */
    /**
     * The entry point of a kernel. 
     *  
@@ -529,9 +617,21 @@ public abstract class Kernel implements Cloneable{
    @Override protected Object clone() {
       try {
          Kernel worker = (Kernel) super.clone();
-         // if there are any private buffers, go thru the fields here
-         // and allocate a new instance for each clone
-
+         worker.groupId = new int[] {
+               0,
+               0,
+               0
+         };
+         worker.localId = new int[] {
+               0,
+               0,
+               0
+         };
+         worker.globalId = new int[] {
+               0,
+               0,
+               0
+         };
          return worker;
       } catch (CloneNotSupportedException e) {
          // TODO Auto-generated catch block
@@ -1373,23 +1473,12 @@ public abstract class Kernel implements Cloneable{
     * Java version is identical to localBarrier()
     * 
     * @annotion Experimental
+    * @deprecated
     */
 
-   @OpenCLDelegate @Annotations.Experimental protected final void globalBarrier() {
-      try {
-         localBarrier.await();
-      } catch (InterruptedException e) {
-         // TODO Auto-generated catch block
-         e.printStackTrace();
-      } catch (BrokenBarrierException e) {
-         // TODO Auto-generated catch block
-         e.printStackTrace();
-      }
-   }
-
-   final void setSizes(int _globalSize, int _localSize) {
-      localSize = _localSize;
-      globalSize = _globalSize;
+   @OpenCLDelegate @Annotations.Experimental @Deprecated() protected final void globalBarrier() throws DeprecatedException {
+      throw new DeprecatedException(
+            "Kernel.globalBarrier() has been deprecated. It was based an incorrect understanding of OpenCL functionality.");
 
    }
 
@@ -1446,12 +1535,12 @@ public abstract class Kernel implements Cloneable{
     * When <code>kernel.execute(globalSize)</code> is invoked, Aparapi will schedule the execution of <code>globalSize</code> kernels. If the execution mode is GPU then 
     * the kernels will execute as OpenCL code on the GPU device. Otherwise, if the mode is JTP, the kernels will execute as a pool of Java threads on the CPU. 
     * <p>
-    * @param _globalSize The number of Kernels that we would like to initiate.
+    * @param range2d The number of Kernels that we would like to initiate.
     * @returnThe Kernel instance (this) so we can chain calls to put(arr).execute(range).get(arr)
     * 
     */
-   public synchronized Kernel execute(int _globalSize) {
-      return (execute(_globalSize, 1));
+   public synchronized Kernel execute(Range range) {
+      return (execute(range, 1));
    }
 
    /**
@@ -1465,8 +1554,8 @@ public abstract class Kernel implements Cloneable{
     * @return The Kernel instance (this) so we can chain calls to put(arr).execute(range).get(arr)
     * 
     */
-   public synchronized Kernel execute(int _globalSize, int _passes) {
-      return (execute("run", _globalSize, _passes));
+   public synchronized Kernel execute(Range _range, int _passes) {
+      return (execute("run", _range, _passes));
    }
 
    /**
@@ -1480,12 +1569,12 @@ public abstract class Kernel implements Cloneable{
     * @return The Kernel instance (this) so we can chain calls to put(arr).execute(range).get(arr)
     * 
     */
-   public synchronized Kernel execute(Entry _entry, int _globalSize) {
+   public synchronized Kernel execute(Entry _entry, Range _range) {
       if (kernelRunner == null) {
          kernelRunner = new KernelRunner(this);
 
       }
-      return (kernelRunner.execute(_entry, _globalSize, 1));
+      return (kernelRunner.execute(_entry, _range, 1));
    }
 
    /**
@@ -1499,8 +1588,8 @@ public abstract class Kernel implements Cloneable{
     * @return The Kernel instance (this) so we can chain calls to put(arr).execute(range).get(arr)
     * 
     */
-   public synchronized Kernel execute(String _entrypoint, int _globalSize) {
-      return (execute(_entrypoint, _globalSize, 1));
+   public synchronized Kernel execute(String _entrypoint, Range _range) {
+      return (execute(_entrypoint, _range, 1));
 
    }
 
@@ -1515,12 +1604,12 @@ public abstract class Kernel implements Cloneable{
     * @return The Kernel instance (this) so we can chain calls to put(arr).execute(range).get(arr)
     * 
     */
-   public synchronized Kernel execute(String _entrypoint, int _globalSize, int _passes) {
+   public synchronized Kernel execute(String _entrypoint, Range _range, int _passes) {
       if (kernelRunner == null) {
          kernelRunner = new KernelRunner(this);
 
       }
-      return (kernelRunner.execute(_entrypoint, _globalSize, _passes));
+      return (kernelRunner.execute(_entrypoint, _range, _passes));
 
    }
 
@@ -1691,11 +1780,6 @@ public abstract class Kernel implements Cloneable{
       //   }
       //}
       return (false);
-   }
-
-   void setLocalSize(int _localSize) {
-      localSize = _localSize;
-
    }
 
    // the flag useNullForLocalSize is useful for testing that what we compute for localSize is what OpenCL

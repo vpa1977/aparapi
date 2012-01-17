@@ -36,61 +36,72 @@ under those regulations, please refer to the U.S. Bureau of Industry and Securit
 
 */
 
-package com.amd.aparapi.sample.squares;
+package com.amd.aparapi.sample.dims;
 
 import com.amd.aparapi.Kernel;
 import com.amd.aparapi.Range;
 
 /**
- * An example Aparapi application which computes and displays squares of a set of 512 input values.
- * While executing on GPU using Aparpi framework, each square value is computed in a separate kernel invocation and 
- * can thus maximize performance by optimally utilizing all GPU computing units 
- *  
- * @author gfrost
- *
+ * An example Aparapi application which demonstrates image manipulation via convolution filter
+ * 
+ * Converted to use int buffer and some performance tweaks by Gary Frost
+ * http://processing.org/learning/pixels/
+ * 
+ * @author Gary Frost
  */
+public class Dim1DTest{
 
-public class Main{
+   public static class Kernel1D extends Kernel{
+      final static int GLOBAL = 0;
+
+      final static int LOCAL_0 = 1;
+
+      final static int GROUP_0 = 2;
+
+      final static int GLOBAL_0 = 3;
+
+      final static int SIZE = 4;
+
+      private final int data[];
+
+      public Kernel1D(Range _range, EXECUTION_MODE _mode) {
+         setExecutionMode(_mode);
+         data = new int[_range.getGlobalSize(0) * _range.getGlobalSize(1) * _range.getGlobalSize(2) * SIZE];
+
+      }
+
+      public void run() {
+         int gid = ((getGlobalSize(0) * getGlobalSize(1) * getGlobalId(2)) + (getGlobalSize(0) * getGlobalId(1)) + getGlobalId(0)); // (w*h*z)+(h*y)+x 
+         data[(gid * SIZE) + GLOBAL] = gid;
+
+         data[(gid * SIZE) + LOCAL_0] = getLocalId(0);
+         data[(gid * SIZE) + GROUP_0] = getGroupId(0);
+         data[(gid * SIZE) + GLOBAL_0] = getGlobalId(0);
+      }
+
+   }
 
    public static void main(String[] _args) {
 
-      final int size = 512;
-
-      /** Input float array for which square values need to be computed. */
-      final float[] values = new float[size];
-
-      /** Initialize input array. */
-      for (int i = 0; i < size; i++) {
-         values[i] = i;
-      }
-
-      /** Output array which will be populated with square values of corresponding input array elements. */
-      final float[] squares = new float[size];
-
-      /** Aparapi Kernel which computes squares of input array elements and populates them in corresponding elements of 
-       * output array. 
-       **/
-      Kernel kernel = new Kernel(){
-         @Override public void run() {
-            int gid = getGlobalId();
-            squares[gid] = values[gid] * values[gid];
+      final Range range = Range.create2D(16, 16, 4, 4);
+      Kernel1D gpu = new Kernel1D(range, Kernel.EXECUTION_MODE.GPU);
+      gpu.execute(range);
+      Kernel1D jtp = new Kernel1D(range, Kernel.EXECUTION_MODE.JTP);
+      jtp.execute(range);
+      for (int i = 0; i < range.getGlobalSize(0) * range.getGlobalSize(1) * range.getGlobalSize(2) * Kernel1D.SIZE; i += Kernel1D.SIZE) {
+         boolean same = true //
+               && gpu.data[i + Kernel1D.GLOBAL] == jtp.data[i + Kernel1D.GLOBAL] //
+               && gpu.data[i + Kernel1D.LOCAL_0] == jtp.data[i + Kernel1D.LOCAL_0] //
+               && gpu.data[i + Kernel1D.GROUP_0] == jtp.data[i + Kernel1D.GROUP_0] //
+               && gpu.data[i + Kernel1D.GLOBAL_0] == jtp.data[i + Kernel1D.GLOBAL_0] //
+         ;
+         if (!same) {
+            System.out.printf("gid        = %6d %6d\n", gpu.data[i + Kernel1D.GLOBAL], jtp.data[i + Kernel1D.GLOBAL]);
+            System.out.printf("localId[0] = %6d %6d\n", gpu.data[i + Kernel1D.LOCAL_0], jtp.data[i + Kernel1D.LOCAL_0]);
+            System.out.printf("groupId[0] = %6d %6d\n", gpu.data[i + Kernel1D.GROUP_0], jtp.data[i + Kernel1D.GROUP_0]);
+            System.out.printf("globalId[0]= %6d %6d\n", gpu.data[i + Kernel1D.GLOBAL_0], jtp.data[i + Kernel1D.GLOBAL_0]);
          }
-      };
-
-      // Execute Kernel.
-
-      kernel.execute(Range.create(512));
-
-      // Report target execution mode: GPU or JTP (Java Thread Pool).
-      System.out.println("Execution mode=" + kernel.getExecutionMode());
-
-      // Display computed square values.
-      for (int i = 0; i < size; i++) {
-         System.out.printf("%6.0f %8.0f\n", values[i], squares[i]);
       }
 
-      // Dispose Kernel resources.
-      kernel.dispose();
    }
-
 }
