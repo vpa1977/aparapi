@@ -85,6 +85,27 @@ jint getProcess() {
 }
 
 
+inline size_t argSize(KernelArg* arg)
+{
+	if(arg->isBoolean()) {
+      return sizeof(jboolean);
+   } else if(arg->isByte()) {
+      return sizeof(jbyte);
+   } else if(arg->isShort()) {
+      return sizeof(jshort);
+   } else if(arg->isInt()) {
+      return sizeof(jint);
+   } else if(arg->isLong()) {
+      return sizeof(jlong);
+   } else if(arg->isFloat()) {
+      return sizeof(jfloat);
+   } else if(arg->isDouble()) {
+      return sizeof(jdouble);
+   }
+   return 0;
+}
+
+
 JNI_JAVA(jint, KernelRunnerJNI, disposeJNI)
    (JNIEnv *jenv, jobject jobj, jlong jniContextHandle) {
       if (config== NULL){
@@ -298,6 +319,7 @@ jint updateNonPrimitiveReferences(JNIEnv *jenv, jobject jobj, JNIContext* jniCon
 
                // Save the lengthInBytes which was set on the java side
                arg->syncSizeInBytes(jenv);
+			   arg->syncUpdateRange(jenv);
 
                if (config->isVerbose()){
                   fprintf(stderr, "updateNonPrimitiveReferences, args[%d].lengthInBytes=%d\n", i, arg->arrayBuffer->lengthInBytes);
@@ -343,10 +365,22 @@ void updateArray(JNIEnv* jenv, JNIContext* jniContext, KernelArg* arg, int& argP
    cl_int status = CL_SUCCESS;
    // if either this is the first run or user changed input array
    // or gc moved something, then we create buffers/args
-   cl_uint mask = CL_MEM_USE_HOST_PTR;
-   if (arg->isReadByKernel() && arg->isMutableByKernel()) mask |= CL_MEM_READ_WRITE;
-   else if (arg->isReadByKernel() && !arg->isMutableByKernel()) mask |= CL_MEM_READ_ONLY;
-   else if (arg->isMutableByKernel()) mask |= CL_MEM_WRITE_ONLY;
+   cl_uint mask = 0;
+   if (arg->isReadByKernel() && arg->isMutableByKernel()) 
+	   mask |= CL_MEM_READ_WRITE;
+   else if (arg->isReadByKernel() && !arg->isMutableByKernel()) 
+	   mask |= CL_MEM_READ_ONLY;
+   else if (arg->isMutableByKernel()) 
+	   mask |= CL_MEM_WRITE_ONLY;
+
+   void * host_ptr = NULL;
+   if ((mask & CL_MEM_READ_WRITE)  || (mask & CL_MEM_READ_ONLY) )
+   {
+	   mask |= CL_MEM_USE_HOST_PTR;
+	   host_ptr = arg->arrayBuffer->addr;
+   }
+	   
+
    arg->arrayBuffer->memMask = mask;
 
    if (config->isVerbose()) {
@@ -360,7 +394,7 @@ void updateArray(JNIEnv* jenv, JNIContext* jniContext, KernelArg* arg, int& argP
    }
 
    arg->arrayBuffer->mem = clCreateBuffer(jniContext->context, arg->arrayBuffer->memMask, 
-         arg->arrayBuffer->lengthInBytes, arg->arrayBuffer->addr, &status);
+         arg->arrayBuffer->lengthInBytes, host_ptr, &status);
 
    if(status != CL_SUCCESS) throw CLException(status,"clCreateBuffer");
 
@@ -584,8 +618,39 @@ void updateWriteEvents(JNIEnv* jenv, JNIContext* jniContext, KernelArg* arg, int
    }
 
    if(arg->isArray()) {
-      status = clEnqueueWriteBuffer(jniContext->commandQueue, arg->arrayBuffer->mem, CL_FALSE, 0, 
-         arg->arrayBuffer->lengthInBytes, arg->arrayBuffer->addr, 0, NULL, &(jniContext->writeEvents[writeEventCount]));
+
+	   if (arg->updateStart >= 0 ) 
+	   {
+			void * mapped = NULL;
+			size_t arg_len = argSize(arg);
+			mapped = clEnqueueMapBuffer(jniContext->commandQueue, arg->arrayBuffer->mem, 
+						CL_TRUE, CL_MAP_WRITE, 
+						arg->updateStart * arg_len,
+						arg->updateLength * arg_len, 0, 0, &(jniContext->writeEvents[writeEventCount]),
+						&status);
+
+			if (status != CL_SUCCESS) throw CLException(status, "clEnqueueMapBuffer()");
+
+			status = clWaitForEvents(1, &(jniContext->writeEvents[writeEventCount]));
+			if (status != CL_SUCCESS) throw CLException(status, "clWaitForEvents");
+
+			memcpy( mapped, (char*)arg->arrayBuffer->addr+ arg_len*arg->updateStart, arg->updateLength * arg_len);
+
+			if (config->isVerbose()){
+				fprintf(stderr, "mapped write %s ptr=%p len=%d start %d, len %d\n", 
+					arg->name, arg->arrayBuffer->addr, 
+					arg->arrayBuffer->lengthInBytes, arg->updateStart, arg->updateLength );
+			}
+
+			status = clEnqueueUnmapMemObject(jniContext->commandQueue, arg->arrayBuffer->mem, mapped, 0, 0, &(jniContext->writeEvents[writeEventCount]));
+
+			if (status != CL_SUCCESS) throw CLException(status, "clEnqueueUnmapMemObject()");
+	   }
+	   else
+	   {
+		  status = clEnqueueWriteBuffer(jniContext->commandQueue, arg->arrayBuffer->mem, CL_FALSE, 0, 
+			 arg->arrayBuffer->lengthInBytes, arg->arrayBuffer->addr, 0, NULL, &(jniContext->writeEvents[writeEventCount]));
+	   }
    } else if(arg->isAparapiBuffer()) {
       status = clEnqueueWriteBuffer(jniContext->commandQueue, arg->aparapiBuffer->mem, CL_FALSE, 0, 
          arg->aparapiBuffer->lengthInBytes, arg->aparapiBuffer->data, 0, NULL, &(jniContext->writeEvents[writeEventCount]));
@@ -1430,6 +1495,100 @@ JNI_JAVA(jint, KernelRunnerJNI, getJNI)
       }
       return 0;
    }
+
+
+
+
+
+// Called as a result of Kernel.get(someArray, int, int)
+JNI_JAVA(jint, KernelRunnerJNI, readMapJNI)
+	(JNIEnv *jenv, jobject jobj, jlong jniContextHandle, jobject buffer,  jint start, jint length) {
+		if (config == NULL){
+			config = new Config(jenv);
+		}
+		cl_int status = CL_SUCCESS;
+		JNIContext* jniContext = JNIContext::getJNIContext(jniContextHandle);
+		if (jniContext != NULL){
+			KernelArg *arg = getArgForBuffer(jenv, jniContext, buffer);
+			if (arg != NULL){
+				if (config->isVerbose()){
+					fprintf(stderr, "explicitly reading buffer %s\n", arg->name);
+				}
+
+				if (!arg->isArray() && !arg->isAparapiBuffer() ) 
+				{
+					if (config->isVerbose()){
+						fprintf(stderr, "attempt to request to get a buffer that does not appear to be referenced from kernel\n");
+					}
+					return 0;
+				}
+
+				if (arg->isAparapiBuffer() ) 
+				{
+					if (config->isVerbose()){
+						fprintf(stderr, "attempt to directly map aparapi buffer\n");
+					}
+					return 0;
+				}
+
+				arg->pin(jenv);
+
+				try {
+					void * mapped = NULL;
+					size_t arg_len = argSize(arg);
+					mapped = clEnqueueMapBuffer(jniContext->commandQueue, arg->arrayBuffer->mem, 
+						CL_TRUE, CL_MAP_READ, 
+						start * arg_len,
+						length * arg_len, 0, 0, &jniContext->readEvents[0],
+						&status);
+
+					if (status != CL_SUCCESS) throw CLException(status, "clEnqueueMapBuffer()");
+
+					status = clWaitForEvents(1, jniContext->readEvents);
+					if (status != CL_SUCCESS) throw CLException(status, "clWaitForEvents");
+
+					
+
+					memcpy((char*)arg->arrayBuffer->addr+ arg_len*start, mapped, length * arg_len);
+
+					if (config->isVerbose()){
+						fprintf(stderr, "mapped read %s ptr=%p len=%d start %d, len %d\n", 
+							arg->name, arg->arrayBuffer->addr, 
+							arg->arrayBuffer->lengthInBytes, start, length );
+					}
+
+					status = clEnqueueUnmapMemObject(jniContext->commandQueue, arg->arrayBuffer->mem, mapped, 0, 0,  &jniContext->readEvents[0]);
+
+					if (status != CL_SUCCESS) throw CLException(status, "clEnqueueUnmapMemObject()");
+
+					status = clWaitForEvents(1, jniContext->readEvents);
+					if (status != CL_SUCCESS) throw CLException(status, "clWaitForEvents");
+
+					if (config->isProfilingEnabled()) {
+						status = profile(&arg->arrayBuffer->read, &jniContext->readEvents[0], 0,
+							arg->name, jniContext->profileBaseTime);
+						if (status != CL_SUCCESS) throw CLException(status, "profile ");
+					}
+
+
+
+					status = clReleaseEvent(jniContext->readEvents[0]);
+					if (status != CL_SUCCESS) throw CLException(status, "clReleaseEvent() read event");
+
+					// since this is an explicit buffer get, 
+					// we expect the buffer to have changed so we commit
+					arg->unpin(jenv); // was unpinCommit
+
+					//something went wrong print the error and exit
+				} catch(CLException& cle) {
+					cle.printError();
+					return status;
+				}
+			} 
+		}
+		return 0;
+}
+
 
 JNI_JAVA(jobject, KernelRunnerJNI, getProfileInfoJNI)
    (JNIEnv *jenv, jobject jobj, jlong jniContextHandle) {

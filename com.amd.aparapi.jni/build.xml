@@ -37,8 +37,8 @@ First consider editing the properties in build.properties
          </and>
       </condition>
 
-      <available property="win64.amd.app.sdk.exists" file="C:/Program Files (x86)/AMD APP" type="dir"/>
-      <condition property="amd.app.sdk.dir" value="C:/Program Files (x86)/AMD APP">
+      <available property="win64.amd.app.sdk.exists" file="C:/Program Files (x86)/AMD APP SDK/2.9" type="dir"/>
+      <condition property="amd.app.sdk.dir" value="C:/Program Files (x86)/AMD APP SDK/2.9">
          <and>
             <os family="windows" />
             <isset property="win64.amd.app.sdk.exists" />

@@ -74,6 +74,11 @@ public interface OpenCL<T> {
    @Target(ElementType.PARAMETER) @Retention(RetentionPolicy.RUNTIME) public @interface Constant {
       String value();
    }
+   
+  
+   @Target(ElementType.FIELD) @Retention(RetentionPolicy.RUNTIME) public @interface Write {
+   }
+
 
    public T put(float[] array);
 

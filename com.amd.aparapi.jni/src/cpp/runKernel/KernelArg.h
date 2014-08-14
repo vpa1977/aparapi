@@ -24,6 +24,9 @@ class KernelArg{
       static jfieldID sizeInBytesFieldID;
       static jfieldID numElementsFieldID;
 
+	  static jfieldID updateStartField;
+	  static jfieldID updateLengthField;
+
       const char* getTypeName();
 
       //all of these use JNIContext so they can't be inlined
@@ -68,6 +71,8 @@ class KernelArg{
       jobject javaArg;   // global reference to the corresponding java KernelArg object we grabbed our own global reference so that the object won't be collected until we dispose!
       char *name;        // used for debugging printfs
       jint type;         // a bit mask determining the type of this arg
+	  jint updateStart;
+	  jint updateLength;
 
       ArrayBuffer *arrayBuffer;
       AparapiBuffer *aparapiBuffer;
@@ -177,6 +182,10 @@ class KernelArg{
       void syncSizeInBytes(JNIEnv* jenv){
          arrayBuffer->lengthInBytes = jenv->GetIntField(javaArg, sizeInBytesFieldID);
       }
+	  void syncUpdateRange(JNIEnv* jenv){
+			updateStart = jenv->GetIntField(argObj, updateStartField);
+			updateLength = jenv->GetIntField(argObj, updateLengthField);
+	  }
       void syncJavaArrayLength(JNIEnv* jenv){
          arrayBuffer->length = jenv->GetIntField(javaArg, numElementsFieldID);
       }

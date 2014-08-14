@@ -45,6 +45,22 @@ public class KernelArg extends KernelArgJNI{
    private int primitiveSize;
 
    /**
+    * 
+    */
+   private int updateStart;
+   private int updateLength;
+
+   public int getUpdateStart() {
+	   return updateStart;
+   }
+
+	public int getUpdateLength() {
+		return updateLength;
+	}
+
+
+
+   /**
     * Default constructor
     */
    protected KernelArg() {
@@ -260,4 +276,9 @@ public class KernelArg extends KernelArgJNI{
    protected void setDims(int[] dims) {
       this.dims = dims;
    }
+
+   public void setUpdateRange(int start, int length) {
+	   this.updateStart = start;
+	   this.updateLength = length;
+    }
 }

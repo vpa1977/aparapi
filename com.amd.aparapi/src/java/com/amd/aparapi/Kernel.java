@@ -2287,6 +2287,20 @@ public abstract class Kernel implements Cloneable {
     * @param array
     * @return This kernel so that we can use the 'fluent' style API
     */
+	public Kernel put(float[] array, int start, int len) {
+		  if (kernelRunner == null) {
+		         kernelRunner = new KernelRunner(this);
+		  }
+		  kernelRunner.put(array, start, len);
+		  return (this);
+	}
+
+
+   /**
+    * Tag this array so that it is explicitly enqueued before the kernel is executed
+    * @param array
+    * @return This kernel so that we can use the 'fluent' style API
+    */
    public Kernel put(float[][] array) {
       if (kernelRunner == null) {
          kernelRunner = new KernelRunner(this);
@@ -2574,6 +2588,15 @@ public abstract class Kernel implements Cloneable {
 
       kernelRunner.get(array);
       return (this);
+   }
+   
+   public Kernel get(float[] array, int start, int length) {
+	      if (kernelRunner == null) {
+	          kernelRunner = new KernelRunner(this);
+	       }
+
+	       kernelRunner.get(array, start, length);
+	       return (this);
    }
 
    /**

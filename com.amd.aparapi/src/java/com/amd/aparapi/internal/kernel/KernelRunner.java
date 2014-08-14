@@ -42,6 +42,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -790,6 +791,15 @@ public class KernelRunner extends KernelRunnerJNI{
                      args[i].setType(args[i].getType() | ARG_EXPLICIT_WRITE);
                      // System.out.println("detected an explicit write " + args[i].name);
                      puts.remove(newArrayRef);
+                     Pair pair = puts_range.remove(newArrayRef);
+                     if (pair!=null)
+                     {
+                    	 arg.setUpdateRange( pair.start, pair.length);
+                     }
+                     else
+                     {
+                    	 arg.setUpdateRange( -1, -1);
+                     }
                   }
                }
 
@@ -1059,10 +1069,23 @@ public class KernelRunner extends KernelRunnerJNI{
                            if (isExplicit()) {
                               args[i].setType(args[i].getType() | ARG_EXPLICIT);
                            }
+                          
                            // for now, treat all write arrays as read-write, see bugzilla issue 4859
                            // we might come up with a better solution later
-                           args[i].setType(args[i].getType()
-                                 | (entryPoint.getArrayFieldAssignments().contains(field.getName()) ? (ARG_WRITE | ARG_READ) : 0));
+                           
+                           
+                           boolean has_write = args[i].getField().getAnnotation(OpenCL.Write.class) != null;
+                           if (has_write)
+                           {
+                               args[i].setType(args[i].getType()
+                                       | (entryPoint.getArrayFieldAssignments().contains(field.getName()) ? ARG_WRITE : 0));
+                        	   
+                           }
+                           else
+                           {
+                        	   args[i].setType(args[i].getType()
+                        			   | (entryPoint.getArrayFieldAssignments().contains(field.getName()) ? (ARG_WRITE | ARG_READ) : 0));
+                           }
                            args[i].setType(args[i].getType()
                                  | (entryPoint.getArrayFieldAccesses().contains(field.getName()) ? ARG_READ : 0));
                            // args[i].type |= ARG_GLOBAL;
@@ -1275,7 +1298,18 @@ public class KernelRunner extends KernelRunnerJNI{
       arg.setSizeInBytes(totalElements * primitiveSize);
    }
 
+   private class Pair
+   {
+	   public Pair(int s, int l)
+	   {
+		   start = s;
+		   length = l;
+	   }
+	   public int start;
+	   public int length;
+   }
    private final Set<Object> puts = new HashSet<Object>();
+   private final HashMap<Object, Pair> puts_range = new HashMap<Object,Pair>();
 
    /**
     * Enqueue a request to return this array from the GPU. This method blocks until the array is available.
@@ -1302,6 +1336,16 @@ public class KernelRunner extends KernelRunnerJNI{
          getJNI(jniContextHandle, array);
       }
    }
+   
+   public void get(Object array, int start, int length) {
+	      if (explicit
+	              && ((kernel.getExecutionMode() == Kernel.EXECUTION_MODE.GPU) || (kernel.getExecutionMode() == Kernel.EXECUTION_MODE.CPU))) {
+	           // Only makes sense when we are using OpenCL
+	           readMapJNI(jniContextHandle, array,start,length);
+	      }
+   }
+   
+   
 
    public List<ProfileInfo> getProfileInfo() {
       if (((kernel.getExecutionMode() == Kernel.EXECUTION_MODE.GPU) || (kernel.getExecutionMode() == Kernel.EXECUTION_MODE.CPU))) {
@@ -1333,8 +1377,35 @@ public class KernelRunner extends KernelRunnerJNI{
             && ((kernel.getExecutionMode() == Kernel.EXECUTION_MODE.GPU) || (kernel.getExecutionMode() == Kernel.EXECUTION_MODE.CPU))) {
          // Only makes sense when we are using OpenCL
          puts.add(array);
+         puts_range.remove(array); // full update
       }
    }
+   
+   /**
+    * Tag this array so that it is explicitly enqueued before the kernel is executed. <br/>
+    * Note that <code>Kernel.put(type [])</code> calls will delegate to this call. <br/>
+    * Package public
+    * 
+    * @param array
+    *          It is assumed that this parameter is indeed an array (of int, float, short etc).
+    * @see Kernel#put(int[] arr)
+    * @see Kernel#put(short[] arr)
+    * @see Kernel#put(float[] arr)
+    * @see Kernel#put(double[] arr)
+    * @see Kernel#put(long[] arr)
+    * @see Kernel#put(char[] arr)
+    * @see Kernel#put(boolean[] arr)
+    */
+
+   public void put(Object array, int start, int len) {
+      if (explicit
+            && ((kernel.getExecutionMode() == Kernel.EXECUTION_MODE.GPU) || (kernel.getExecutionMode() == Kernel.EXECUTION_MODE.CPU))) {
+         // Only makes sense when we are using OpenCL
+         puts.add(array);
+         puts_range.put(array, new Pair(start,len));
+      }
+   }
+
 
    private boolean explicit = false;
 
@@ -1375,4 +1446,5 @@ public class KernelRunner extends KernelRunnerJNI{
    public long getAccumulatedExecutionTime() {
       return accumulatedExecutionTime;
    }
+
 }

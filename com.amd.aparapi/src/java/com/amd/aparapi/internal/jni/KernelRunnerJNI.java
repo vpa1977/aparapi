@@ -294,6 +294,8 @@ public abstract class KernelRunnerJNI{
 
    protected native int getJNI(long _jniContextHandle, Object _array);
 
+   protected native int readMapJNI(long _jniContextHandle, Object _array, int start, int end);
+
    protected native long buildProgramJNI(long _jniContextHandle, String _source);
 
    protected native int setArgsJNI(long _jniContextHandle, KernelArgJNI[] _args, int argc);
