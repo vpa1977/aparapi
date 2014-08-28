@@ -619,7 +619,7 @@ void updateWriteEvents(JNIEnv* jenv, JNIContext* jniContext, KernelArg* arg, int
 
    if(arg->isArray()) {
 
-	   if (arg->updateStart >= 0 ) 
+	   if (arg->updateStart >= 0  && arg->updateLength > 0) 
 	   {
 			void * mapped = NULL;
 			size_t arg_len = argSize(arg);
@@ -686,7 +686,7 @@ void processLocalArray(JNIEnv* jenv, JNIContext* jniContext, KernelArg* arg, int
    cl_int status = CL_SUCCESS;
    // what if local buffer size has changed?  We need a check for resize here.
    if (jniContext->firstRun) {
-      status = arg->setLocalBufferArg(jenv, argIdx, argPos, config->isVerbose());
+      status = arg->setLocalBufferArg(jenv, argIdx, argPos, config->isVerbose() );
       if(status != CL_SUCCESS) throw CLException(status,"clSetKernelArg() (local)");
 
       // Add the array length if needed
@@ -813,8 +813,8 @@ int processArgs(JNIEnv* jenv, JNIContext* jniContext, int& argPos, int& writeEve
 }
 
 /**
- * enqueus the current kernel to run on opencl
- *
+ * enqueus the current kernel to run on opencl 
+ * 
  * @param jniContext the context with the arguements
  * @param range the range that the kernel is running over
  * @param passes the number of passes for the kernel
@@ -823,7 +823,7 @@ int processArgs(JNIEnv* jenv, JNIContext* jniContext, int& argPos, int& writeEve
  *
  * @throws CLException
  */
-void enqueueKernel(JNIContext* jniContext, Range& range, int passes, int argPos, int writeEventCount){
+void enqueueKernel(JNIContext* jniContext,  Range& range, int passes, int argPos, int writeEventCount){
    // We will need to revisit the execution of multiple devices.  
    // POssibly cloning the range per device and mutating each to handle a unique subrange (of global) and
    // maybe even pushing the offset into the range class.
@@ -842,11 +842,13 @@ void enqueueKernel(JNIContext* jniContext, Range& range, int passes, int argPos,
    jniContext->passes = passes;
    jniContext->exec = new ProfileInfo[passes];
 
+   cl_kernel kernel = jniContext->kernel;
+
    cl_int status = CL_SUCCESS;
    for (int passid=0; passid < passes; passid++) {
 
       //size_t offset = 1; // (size_t)((range.globalDims[0]/jniContext->deviceIdc)*dev);
-      status = clSetKernelArg(jniContext->kernel, argPos, sizeof(passid), &(passid));
+      status = clSetKernelArg(kernel, argPos, sizeof(passid), &(passid));
       if (status != CL_SUCCESS) throw CLException(status, "clSetKernelArg() (passid)");
 
       // wait for this event count
@@ -862,7 +864,7 @@ void enqueueKernel(JNIContext* jniContext, Range& range, int passes, int argPos,
       // while using clGetDeviceInfo
       // see: http://www.openwall.com/lists/john-dev/2012/04/10/4
       cl_uint max_group_size[3];
-      status = clGetKernelWorkGroupInfo(jniContext->kernel,
+      status = clGetKernelWorkGroupInfo(kernel,
                                         (cl_device_id)jniContext->deviceId,
                                         CL_KERNEL_WORK_GROUP_SIZE,
                                         sizeof(max_group_size),
@@ -916,7 +918,144 @@ void enqueueKernel(JNIContext* jniContext, Range& range, int passes, int argPos,
 
       status = clEnqueueNDRangeKernel(
             jniContext->commandQueue,
-            jniContext->kernel,
+            kernel,
+            range.dims,
+            range.offsets,
+            range.globalDims,
+            range.localDims,
+            writeCount,
+            writeEvents,
+            &jniContext->executeEvents[0]);
+
+      if (status != CL_SUCCESS) {
+
+         for(int i = 0; i<range.dims;i++) {
+            fprintf(stderr, "after clEnqueueNDRangeKernel, globalSize[%d] = %d, localSize[%d] = %d\n",
+                  i, (int)range.globalDims[i], i, (int)range.localDims[i]);
+         }
+         throw CLException(status, "clEnqueueNDRangeKernel()");
+      }
+
+      if(config->isTrackingOpenCLResources()){
+         executeEventList.add(jniContext->executeEvents[0],__LINE__, __FILE__);
+      }
+    
+   }
+}
+
+
+/**
+ * enqueus the current kernel to run on opencl - temporary hack to run a named kernel
+ * "proper" implementation should have some way of passing a handle back to java app
+ * 
+ * @param jniContext the context with the arguements
+ * @param range the range that the kernel is running over
+ * @param passes the number of passes for the kernel
+ * @param argPos the number of arguments we passed to the kernel
+ * @param writeEventCount the number of arguement that will be updated
+ *
+ * @throws CLException
+ */
+void enqueueKernel(JNIContext* jniContext, const char* name , Range& range, int passes, int argPos, int writeEventCount){
+   // We will need to revisit the execution of multiple devices.  
+   // POssibly cloning the range per device and mutating each to handle a unique subrange (of global) and
+   // maybe even pushing the offset into the range class.
+
+   //   size_t globalSize_0AsSizeT = (range.globalDims[0] /jniContext->deviceIdc);
+   //   size_t localSize_0AsSizeT = range.localDims[0];
+
+   // To support multiple passes we add a 'secret' final arg called 'passid' and just schedule multiple enqueuendrange kernels.  Each of which having a separate value of passid
+
+
+   // delete the last set
+   if (jniContext->exec) {
+      delete jniContext->exec;
+      jniContext->exec = NULL;
+   } 
+   jniContext->passes = passes;
+   jniContext->exec = new ProfileInfo[passes];
+
+   JNIContext::KernelMap::iterator it = jniContext->kernelMap.find(name);
+   if (it == jniContext->kernelMap.end() ) 
+	     throw CLException(0, "KernelMap name is not known");
+   
+   cl_kernel kernel = it->second;
+
+   cl_int status = CL_SUCCESS;
+   for (int passid=0; passid < passes; passid++) {
+
+      //size_t offset = 1; // (size_t)((range.globalDims[0]/jniContext->deviceIdc)*dev);
+      status = clSetKernelArg(kernel, argPos, sizeof(passid), &(passid));
+      if (status != CL_SUCCESS) throw CLException(status, "clSetKernelArg() (passid)");
+
+      // wait for this event count
+      int writeCount = 0;
+      // list of events to wait for
+      cl_event* writeEvents = NULL;
+
+
+
+      // -----------
+      // fix for Mac OSX CPU driver (and possibly others) 
+      // which fail to give correct maximum work group info
+      // while using clGetDeviceInfo
+      // see: http://www.openwall.com/lists/john-dev/2012/04/10/4
+      cl_uint max_group_size[3];
+      status = clGetKernelWorkGroupInfo(kernel,
+                                        (cl_device_id)jniContext->deviceId,
+                                        CL_KERNEL_WORK_GROUP_SIZE,
+                                        sizeof(max_group_size),
+                                        &max_group_size, NULL);
+      
+      if (status != CL_SUCCESS) {
+         CLException(status, "clGetKernelWorkGroupInfo()").printError();
+      } else {
+         range.localDims[0] = std::min((cl_uint)range.localDims[0], max_group_size[0]);
+      }
+      // ------ end fix
+
+        
+      // two options here due to passid
+      // there may be 1 or more passes
+      // enqueue depends on write enqueues 
+      // we don't block but and we populate the executeEvents
+      if (passid == 0) {
+
+         writeCount = writeEventCount;
+         if(writeEventCount > 0) {
+            writeEvents = jniContext->writeEvents;
+         }
+
+      // we are in some passid > 0 pass 
+      // maybe middle or last!
+      // we don't depend on write enqueues
+      // we block and do supply executeEvents 
+      } else {
+         //fprintf(stderr, "setting passid to %d of %d not first not last\n", passid, passes);
+         
+         status = clWaitForEvents(1, &jniContext->executeEvents[0]);
+         if (status != CL_SUCCESS) throw CLException(status, "clWaitForEvents() execute event");
+
+         if (config->isTrackingOpenCLResources()) {
+            executeEventList.remove(jniContext->executeEvents[0],__LINE__, __FILE__);
+         }
+
+         status = clReleaseEvent(jniContext->executeEvents[0]);
+         if (status != CL_SUCCESS) throw CLException(status, "clReleaseEvent() read event");
+
+         // We must capture any profile info for passid-1  so we must wait for the last execution to complete
+         if (passid == 1 && config->isProfilingEnabled()) {
+
+            // Now we can profile info for passid-1 
+            status = profile(&jniContext->exec[passid-1], &jniContext->executeEvents[0], 1, NULL, jniContext->profileBaseTime);
+            if (status != CL_SUCCESS) throw CLException(status,"");
+         }
+
+      }
+
+      status = clEnqueueNDRangeKernel(
+            jniContext->commandQueue,
+            kernel,
             range.dims,
             range.offsets,
             range.globalDims,
@@ -1172,6 +1311,67 @@ JNI_JAVA(jint, KernelRunnerJNI, runKernelJNI)
    }
 
 
+JNI_JAVA(jint, KernelRunnerJNI, runKernelNameJNI)
+   (JNIEnv *jenv, jobject jobj, jlong jniContextHandle, jstring kernelName, jobject _range, jboolean needSync, jint passes) {
+      if (config == NULL){
+         config = new Config(jenv);
+      }
+
+      Range range(jenv, _range);
+
+      cl_int status = CL_SUCCESS;
+      JNIContext* jniContext = JNIContext::getJNIContext(jniContextHandle);
+
+
+      if (jniContext->firstRun && config->isProfilingEnabled()){
+         try {
+            profileFirstRun(jniContext);
+         } catch(CLException& cle) {
+            cle.printError();
+            return 0L;
+         }
+      }
+
+
+      int argPos = 0;
+      // Need to capture array refs
+      if (jniContext->firstRun || needSync) {
+         try {
+            updateNonPrimitiveReferences(jenv, jobj, jniContext);
+         } catch (CLException& cle) {
+             cle.printError();
+         }
+         if (config->isVerbose()){
+            fprintf(stderr, "back from updateNonPrimitiveReferences\n");
+         }
+      }
+
+
+      try {
+         int writeEventCount = 0;
+         processArgs(jenv, jniContext, argPos, writeEventCount);
+		 const char* p_name = jenv->GetStringUTFChars(kernelName, NULL);
+         enqueueKernel(jniContext, p_name, range, passes, argPos, writeEventCount);
+         int readEventCount = getReadEvents(jenv, jniContext);
+         waitForReadEvents(jniContext, readEventCount, passes);
+         checkEvents(jenv, jniContext, writeEventCount);
+      }
+      catch(CLException& cle) {
+         cle.printError();
+         jniContext->unpinAll(jenv);
+         return cle.status();
+      }
+
+
+
+
+      //fprintf(stderr, "About to return %d from exec\n", status);
+      return(status);
+   }
+
+
+
+
 // we return the JNIContext from here 
 JNI_JAVA(jlong, KernelRunnerJNI, initJNI)
    (JNIEnv *jenv, jobject jobj, jobject kernelObject, jobject openCLDeviceObject, jint flags) {
@@ -1247,8 +1447,24 @@ JNI_JAVA(jlong, KernelRunnerJNI, buildProgramJNI)
 
          if(status == CL_BUILD_PROGRAM_FAILURE) throw CLException(status, "");
 
-         jniContext->kernel = clCreateKernel(jniContext->program, "run", &status);
-         if(status != CL_SUCCESS) throw CLException(status,"clCreateKernel()");
+		 cl_uint num_kernels;
+
+		 clCreateKernelsInProgram(jniContext->program, 0, NULL, &num_kernels);
+		 cl_kernel* p_kernels = new cl_kernel[ num_kernels];
+
+		 status = clCreateKernelsInProgram(jniContext->program, num_kernels, p_kernels, NULL);
+		if(status != CL_SUCCESS) throw CLException(status,"clCreateKernel()");
+
+		 for (int i = 0; i < num_kernels; ++i ) 
+		 {
+			 size_t len;
+			 char id[256];
+			 clGetKernelInfo( p_kernels[i], CL_KERNEL_FUNCTION_NAME, 256, id, &len);
+			 jniContext->kernelMap.insert( JNIContext::KernelMap::value_type( id, p_kernels[i] ) );
+		 }
+		 
+		 jniContext->kernel = jniContext->kernelMap["run"];//clCreateKernel(jniContext->program, "run", &status);
+
 
          cl_command_queue_properties queue_props = 0;
          if (config->isProfilingEnabled()) {

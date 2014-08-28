@@ -81,6 +81,7 @@ void processLocalBuffer(JNIEnv* jenv, JNIContext* jniContext, KernelArg* arg, in
 int processArgs(JNIEnv* jenv, JNIContext* jniContext, int& argPos, int& writeEventCount);
 
 void enqueueKernel(JNIContext* jniContext, Range& range, int passes, int argPos, int writeEventCount);
+void enqueueKernel(JNIContext* jniContext, const char* kernelName, Range& range, int passes, int argPos, int writeEventCount);
 
 int getReadEvents(JNIContext* jniContext);
 
