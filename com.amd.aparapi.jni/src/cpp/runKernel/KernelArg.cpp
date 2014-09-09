@@ -14,8 +14,6 @@ jfieldID KernelArg::javaArrayFieldID=0;
 jfieldID KernelArg::sizeInBytesFieldID=0;
 jfieldID KernelArg::numElementsFieldID=0; 
 
-jfieldID KernelArg::updateStartField =0;
-jfieldID KernelArg::updateLengthField = 0;
 
 KernelArg::KernelArg(JNIEnv *jenv, JNIContext *jniContext, jobject argObj):
    jniContext(jniContext),
@@ -28,13 +26,10 @@ KernelArg::KernelArg(JNIEnv *jenv, JNIContext *jniContext, jobject argObj):
          javaArrayFieldID = JNIHelper::GetFieldID(jenv, c, "javaArray", "Ljava/lang/Object;");
          sizeInBytesFieldID = JNIHelper::GetFieldID(jenv, c, "sizeInBytes", "I");
          numElementsFieldID = JNIHelper::GetFieldID(jenv, c, "numElements", "I");
-		 updateLengthField = JNIHelper::GetFieldID(jenv, c, "updateLength", "I");
-		 updateStartField = JNIHelper::GetFieldID(jenv, c, "updateStart", "I");
          argClazz  = c;
       }
 
-	  updateStart = jenv->GetIntField(argObj, updateStartField);
-	  updateLength = jenv->GetIntField(argObj, updateLengthField);
+	  
 
       type = jenv->GetIntField(argObj, typeFieldID);
       jstring nameString  = (jstring)jenv->GetObjectField(argObj, nameFieldID);

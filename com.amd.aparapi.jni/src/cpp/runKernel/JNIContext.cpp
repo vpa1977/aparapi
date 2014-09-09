@@ -58,10 +58,7 @@ void JNIContext::dispose(JNIEnv *jenv, Config* config) {
       program = (cl_program)0;
    }
    if (kernel != 0){
-      status = clReleaseKernel((cl_kernel)kernel);
-      //fprintf(stdout, "dispose kernel %0lx\n", kernel);
-      CLException::checkCLError(status, "clReleaseKernel()");
-      kernel = (cl_kernel)0;
+      status = clReleaseKernel(kernel);
    }
    if (argc > 0){
       for (int i=0; i< argc; i++){

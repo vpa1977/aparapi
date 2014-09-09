@@ -8,6 +8,9 @@
 #include "com_amd_aparapi_internal_jni_KernelRunnerJNI.h"
 #include "Config.h"
 
+#include <string>
+#include <map>
+
 class JNIContext {
 private: 
    jint flags;
@@ -34,7 +37,7 @@ public:
    jint passes;
    ProfileInfo *exec;
    FILE* profileFile;
-
+   
    JNIContext(JNIEnv *jenv, jobject _kernelObject, jobject _openCLDeviceObject, jint _flags);
    
    static JNIContext* getJNIContext(jlong jniContextHandle){
